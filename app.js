@@ -320,7 +320,15 @@ function setupEventListeners() {
         // Keep it visible
       }
 
-      showPlayerToast(`Direct stream requires HEVC support. Try 'Play in VLC/MX' below, or switching to Server 1...`);
+      // If it is a codec / format support issue, switch silently and instantly (in 100ms)
+      const isFormatError = err.code === 3 || err.code === 4;
+      const switchDelay = isFormatError ? 100 : 3000;
+      
+      if (isFormatError) {
+        showPlayerToast(`Loading compatibility player (Server 1)...`);
+      } else {
+        showPlayerToast(`Stream offline. Switching to Server 1...`);
+      }
       
       const server1Btn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
       if (server1Btn) {
@@ -330,7 +338,7 @@ function setupEventListeners() {
           if (activeBtn && activeBtn.id === 'server-btn-direct') {
             server1Btn.click();
           }
-        }, 5000);
+        }, switchDelay);
       }
     }
   });

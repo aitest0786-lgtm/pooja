@@ -266,10 +266,31 @@ async function scrapeVegaCategory(category, page) {
 
 // Helper to classify search items for categories
 function getCategoryOfItem(item) {
-  const titleLower = item.title.toLowerCase();
-  if (titleLower.includes('anime')) {
+  if (item.category === 'anime') {
     return 'anime';
   }
+  const titleLower = item.title.toLowerCase();
+  
+  let decodedUrl = '';
+  try {
+    decodedUrl = Buffer.from(item.detailId, 'base64').toString('utf8').toLowerCase();
+  } catch (e) {}
+
+  const isAnime = titleLower.includes('anime') || 
+                  titleLower.includes('animation') ||
+                  titleLower.includes('japanese') ||
+                  titleLower.includes('japan') ||
+                  titleLower.includes('donghua') ||
+                  titleLower.includes('subbed') ||
+                  item.cn === 'Japan' ||
+                  item.cn === 'japan' ||
+                  decodedUrl.includes('animation') ||
+                  decodedUrl.includes('anime');
+
+  if (isAnime) {
+    return 'anime';
+  }
+
   if (titleLower.includes('season') || 
       titleLower.includes('episode') || 
       titleLower.includes('ep-') ||
@@ -354,11 +375,22 @@ app.get('/api/movies', async (req, res) => {
                 poster = poster.replace('pbcdnw', 'pacdn');
               }
               
+              // Detect anime category from API response details
+              let itemCategory = '';
+              const isAnimeGenre = item.genre_ids && (
+                item.genre_ids.includes(10) || item.genre_ids.includes(6) || 
+                item.genre_ids.includes('10') || item.genre_ids.includes('6')
+              );
+              if (item.cn === 'Japan' || item.cn === 'japan' || isAnimeGenre) {
+                itemCategory = 'anime';
+              }
+
               list.push({
                 title: cleanTitleBranding(item.title),
                 detailId: Buffer.from(customUrl).toString('base64'),
                 poster: poster,
-                media_type: type
+                media_type: type,
+                category: itemCategory
               });
             });
           }
@@ -384,10 +416,19 @@ app.get('/api/movies', async (req, res) => {
 
             if (href && title) {
               const absoluteDetailUrl = href.startsWith('http') ? href : new URL(href, 'https://vegamovie.ss').href;
+              
+              // Detect anime category from WordPress post class list
+              const classes = $vega(el).attr('class') || '';
+              let itemCategory = '';
+              if (classes.includes('category-animation') || classes.includes('category-anime')) {
+                itemCategory = 'anime';
+              }
+
               list.push({
                 title: cleanTitleBranding(title),
                 detailId: Buffer.from(absoluteDetailUrl).toString('base64'),
-                poster: poster ? (poster.startsWith('http') ? poster : new URL(poster, 'https://vegamovie.ss').href) : ''
+                poster: poster ? (poster.startsWith('http') ? poster : new URL(poster, 'https://vegamovie.ss').href) : '',
+                category: itemCategory
               });
             }
           });
