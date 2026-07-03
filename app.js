@@ -313,17 +313,23 @@ function setupEventListeners() {
         nativeVideoPlayer.load();
       } catch(e) {}
 
-      // Hide external player container when player error fallback triggers
+      // Keep external player container visible so the user can still click it if the browser fails
       const extPlayerContainer = document.getElementById('external-player-container');
-      if (extPlayerContainer) extPlayerContainer.style.display = 'none';
+      if (extPlayerContainer) {
+        // Keep it visible
+      }
 
-      showPlayerToast(`Direct stream failed (${message}). Switching to Server 1...`);
+      showPlayerToast(`Direct stream requires HEVC support. Try 'Play in VLC/MX' below, or switching to Server 1...`);
       
       const server1Btn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
       if (server1Btn) {
         setTimeout(() => {
-          server1Btn.click();
-        }, 1500);
+          // Only auto-switch if the user is still selected on the direct stream server
+          const activeBtn = document.querySelector('#player-servers .server-btn.active');
+          if (activeBtn && activeBtn.id === 'server-btn-direct') {
+            server1Btn.click();
+          }
+        }, 5000);
       }
     }
   });
@@ -545,17 +551,26 @@ async function openDetailsModal(detailId, posterUrl) {
         item.className = 'dwd-item';
         
         const isSample = dwd.title.toLowerCase().includes('sample');
-        const isEpisodeOrShow = dwd.isEpisode || isShow;
 
-        if (isEpisodeOrShow && !isSample) {
+        if (!isSample) {
           const resolvedDwdUrl = dwd.url.startsWith('/api/') ? API_BASE_URL + dwd.url : dwd.url;
+          let streamPlayUrl = dwd.url;
+          if (dwd.url.includes('/api/download')) {
+            streamPlayUrl = dwd.url.replace('/api/download', '/api/stream-play');
+          }
+          const absoluteStreamPlayUrl = streamPlayUrl.startsWith('/api/') ? window.location.origin + streamPlayUrl : streamPlayUrl;
+          const intentUrl = `intent:${absoluteStreamPlayUrl}#Intent;action=android.intent.action.VIEW;type=video/*;end`;
+
           item.innerHTML = `
             <div class="dwd-lbl" title="${dwd.title}">${dwd.title}</div>
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-              <button class="play-ep-btn" data-url="${dwd.url}" data-title="${dwd.title}">
+              <button class="play-ep-btn" data-url="${streamPlayUrl}" data-title="${dwd.title}" style="padding: 8px 12px; font-size: 13px;">
                 <i class="fa-solid fa-circle-play"></i> Play Online
               </button>
-              <a href="${resolvedDwdUrl}" class="dwd-btn-action" target="_blank" style="padding: 8px 14px;">
+              <a href="${intentUrl}" class="play-vlc-btn" style="padding: 8px 12px; font-size: 13px; background: linear-gradient(135deg, #ff9900, #ff5500); color: white; border-radius: 6px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; font-weight: 600; box-shadow: 0 2px 8px rgba(255, 85, 0, 0.3);">
+                <i class="fa-solid fa-up-right-from-square"></i> Play in VLC/MX
+              </a>
+              <a href="${resolvedDwdUrl}" class="dwd-btn-action" target="_blank" style="padding: 8px 12px; font-size: 13px;">
                 <i class="fa-solid fa-circle-down"></i> Download
               </a>
             </div>
@@ -573,7 +588,7 @@ async function openDetailsModal(detailId, posterUrl) {
           item.innerHTML = `
             <div class="dwd-lbl" title="${dwd.title}">${dwd.title}</div>
             <a href="${resolvedDwdUrl}" class="dwd-btn-action" target="_blank">
-              <i class="fa-solid fa-circle-down"></i> Download Now
+              <i class="fa-solid fa-circle-down"></i> Download Sample
             </a>
           `;
         }

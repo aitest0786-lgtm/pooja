@@ -242,7 +242,7 @@ async function scrapeVegaCategory(category, page) {
     const html = await fetchHtml(url);
     const $ = cheerio.load(html);
     $('article, .post-item, .blog-post, .post').each((i, el) => {
-      const titleEl = $(el).find('h2 a, h3 a, a').first();
+      const titleEl = $(el).find('h3 a, h2 a').first();
       const href = titleEl.attr('href');
       const title = titleEl.text().trim() || $(el).find('img').attr('alt') || '';
       const imgEl = $(el).find('img').first();
@@ -376,7 +376,7 @@ app.get('/api/movies', async (req, res) => {
           const $vega = cheerio.load(vegaHtml);
           const list = [];
           $vega('article, .post-item, .blog-post, .post').each((i, el) => {
-            const titleEl = $vega(el).find('h2 a, h3 a, a').first();
+            const titleEl = $vega(el).find('h3 a, h2 a').first();
             const href = titleEl.attr('href');
             const title = titleEl.text().trim() || $vega(el).find('img').attr('alt') || '';
             const imgEl = $vega(el).find('img').first();
