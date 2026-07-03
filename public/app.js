@@ -19,6 +19,7 @@ let currentSeason = 1;
 let currentEpisode = 1;
 let currentDirectStreamUrl = null;
 let currentEpisodesList = [];
+let currentMovieData = null;
 let currentPlayingEpisodeIndex = -1;
 let directStreamWatchdog = null;
 
@@ -54,6 +55,83 @@ const nativePlayerWrapper = document.getElementById('native-player-wrapper');
 const nativeVideoPlayer = document.getElementById('native-video-player');
 const iframePlayerWrapper = document.getElementById('iframe-player-wrapper');
 const directServerBtn = document.getElementById('server-btn-direct');
+
+// Video Player Loaders
+const nativePlayerLoader = document.getElementById('native-player-loader');
+const iframePlayerLoader = document.getElementById('iframe-player-loader');
+
+function showNativeLoader() {
+  if (nativePlayerLoader) nativePlayerLoader.style.display = 'flex';
+}
+function hideNativeLoader() {
+  if (nativePlayerLoader) nativePlayerLoader.style.display = 'none';
+}
+function showIframeLoader() {
+  if (iframePlayerLoader) iframePlayerLoader.style.display = 'flex';
+}
+function hideIframeLoader() {
+  if (iframePlayerLoader) iframePlayerLoader.style.display = 'none';
+}
+
+// Intercept videoPlayerIframe src property changes to auto-manage iframe loader
+if (videoPlayerIframe) {
+  const originalSrcProp = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'src');
+  Object.defineProperty(videoPlayerIframe, 'src', {
+    get() {
+      return originalSrcProp.get.call(this);
+    },
+    set(val) {
+      if (!val || val === '') {
+        hideIframeLoader();
+      } else {
+        showIframeLoader();
+      }
+      originalSrcProp.set.call(this, val);
+    }
+  });
+
+  // Hide loader when iframe finishes loading
+  videoPlayerIframe.addEventListener('load', hideIframeLoader);
+}
+
+// Video Volume Booster (Web Audio API)
+let audioCtx = null;
+let gainNode = null;
+let audioSource = null;
+
+function boostVideoVolume(boostFactor = 2.5) {
+  if (!nativeVideoPlayer) return;
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      gainNode = audioCtx.createGain();
+      audioSource = audioCtx.createMediaElementSource(nativeVideoPlayer);
+      audioSource.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      console.log('[Volume Booster] Initialized with 2.5x boost.');
+    }
+    gainNode.gain.value = boostFactor;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+  } catch (e) {
+    console.error('[Volume Booster] Failed to initialize:', e);
+  }
+}
+
+// Listen to native player events for loading/buffering loader
+if (nativeVideoPlayer) {
+  nativeVideoPlayer.addEventListener('waiting', showNativeLoader);
+  nativeVideoPlayer.addEventListener('seeking', showNativeLoader);
+  nativeVideoPlayer.addEventListener('loadstart', showNativeLoader);
+  nativeVideoPlayer.addEventListener('playing', () => {
+    hideNativeLoader();
+    boostVideoVolume(2.5); // Auto boost to 250%
+  });
+  nativeVideoPlayer.addEventListener('canplay', hideNativeLoader);
+  nativeVideoPlayer.addEventListener('seeked', hideNativeLoader);
+  nativeVideoPlayer.addEventListener('error', hideNativeLoader);
+}
 
 // Hero elements
 const heroBanner = document.getElementById('hero-banner');
@@ -160,32 +238,35 @@ function setupEventListeners() {
       btn.classList.add('active');
 
       if (btn.id === 'server-btn-direct') {
-        if (currentDirectStreamUrl && currentDirectStreamUrl.includes('/api/netmirror-stream')) {
-          fetch(currentDirectStreamUrl)
-            .then(res => res.json())
-            .then(data => {
-              if (data.streamUrl) {
-                iframePlayerWrapper.style.display = 'none';
-                videoPlayerIframe.src = '';
-                nativePlayerWrapper.style.display = 'block';
-                nativeVideoPlayer.src = data.streamUrl.startsWith('/api/') ? API_BASE_URL + data.streamUrl : data.streamUrl;
-                nativeVideoPlayer.load();
-                nativeVideoPlayer.play().catch(e => console.log('Autoplay blocked:', e));
-                startDirectStreamWatchdog();
-              } else if (data.iframeUrl) {
-                nativePlayerWrapper.style.display = 'none';
-                nativeVideoPlayer.removeAttribute('src');
-                nativeVideoPlayer.load();
-                iframePlayerWrapper.style.display = 'block';
-                videoPlayerIframe.src = data.iframeUrl.startsWith('/api/') ? API_BASE_URL + data.iframeUrl : data.iframeUrl;
-              }
-            })
-            .catch(err => console.error('Failed to load NetMirror movie stream:', err));
+        // Direct Stream (Premium) now plays OkJatt direct stream!
+        iframePlayerWrapper.style.display = 'none';
+        videoPlayerIframe.src = '';
+        nativePlayerWrapper.style.display = 'block';
+        
+        // Determine if it is a show episode or a movie
+        const isShow = currentMediaType === 'tv';
+        if (isShow && currentEpisodesList.length > 0) {
+          const activeEp = currentEpisodesList[currentPlayingEpisodeIndex !== -1 ? currentPlayingEpisodeIndex : 0];
+          if (activeEp) {
+            showPlayerToast(`Loading Direct Stream Episode: ${activeEp.title}...`);
+            const epId = activeEp.url.split('?id=')[1] || btoa(activeEp.url);
+            const fetchUrl = `${API_BASE_URL}/api/episode-stream?id=${epId}`;
+            fetch(fetchUrl)
+              .then(res => res.json())
+              .then(data => {
+                if (data.streamUrl) {
+                  nativeVideoPlayer.src = data.streamUrl.startsWith('/api/') ? API_BASE_URL + data.streamUrl : data.streamUrl;
+                  nativeVideoPlayer.load();
+                  nativeVideoPlayer.play().catch(e => console.log('Autoplay blocked:', e));
+                  startDirectStreamWatchdog();
+                }
+              })
+              .catch(err => console.error('Failed to load Direct Stream episode stream:', err));
+          }
         } else {
-          iframePlayerWrapper.style.display = 'none';
-          videoPlayerIframe.src = '';
-          nativePlayerWrapper.style.display = 'block';
+          // Play Movie
           if (currentDirectStreamUrl) {
+            showPlayerToast('Loading Direct Stream Movie...');
             nativeVideoPlayer.src = currentDirectStreamUrl;
             nativeVideoPlayer.load();
             nativeVideoPlayer.play().catch(e => console.log('Autoplay blocked:', e));
@@ -194,23 +275,75 @@ function setupEventListeners() {
         }
       } else {
         clearDirectStreamWatchdog();
-        nativePlayerWrapper.style.display = 'none';
-        nativeVideoPlayer.pause();
-        nativeVideoPlayer.removeAttribute('src');
-        nativeVideoPlayer.load();
-        iframePlayerWrapper.style.display = 'block';
-
-        if (currentImdbId) {
-          let prefix = btn.dataset.srcPrefix;
-          if (currentMediaType === 'tv') {
-            if (prefix.includes('multiembed.mov')) {
-              videoPlayerIframe.src = `${prefix}${currentImdbId}&s=${currentSeason}&e=${currentEpisode}`;
-            } else {
-              prefix = prefix.replace('/movie/', '/tv/');
-              videoPlayerIframe.src = `${prefix}${currentImdbId}/${currentSeason}/${currentEpisode}`;
-            }
+        
+        if (btn.id === 'server-btn-1') {
+          // Server 1 now plays NetMirror!
+          if (currentImdbId) {
+            showPlayerToast('Loading Server 1 (Premium)...');
+            const fetchUrl = `${API_BASE_URL}/api/netmirror-stream?subjectid=${currentImdbId}&se=${currentMediaType === 'tv' ? currentSeason : 0}&ep=${currentMediaType === 'tv' ? currentEpisode : 0}&title=${encodeURIComponent(currentMovieData ? currentMovieData.title : '')}`;
+            fetch(fetchUrl)
+              .then(res => res.json())
+              .then(data => {
+                if (data.streamUrl) {
+                  iframePlayerWrapper.style.display = 'none';
+                  videoPlayerIframe.src = '';
+                  nativePlayerWrapper.style.display = 'block';
+                  nativeVideoPlayer.src = data.streamUrl.startsWith('/api/') ? API_BASE_URL + data.streamUrl : data.streamUrl;
+                  nativeVideoPlayer.load();
+                  nativeVideoPlayer.play().catch(e => console.log('Autoplay blocked:', e));
+                  startDirectStreamWatchdog();
+                } else if (data.iframeUrl) {
+                  nativePlayerWrapper.style.display = 'none';
+                  nativeVideoPlayer.removeAttribute('src');
+                  nativeVideoPlayer.load();
+                  iframePlayerWrapper.style.display = 'block';
+                  videoPlayerIframe.src = data.iframeUrl.startsWith('/api/') ? API_BASE_URL + data.iframeUrl : data.iframeUrl;
+                }
+              })
+              .catch(err => {
+                console.error('Server 1 NetMirror load failed, falling back to original source:', err);
+                if (currentDirectStreamUrl) {
+                  iframePlayerWrapper.style.display = 'none';
+                  videoPlayerIframe.src = '';
+                  nativePlayerWrapper.style.display = 'block';
+                  nativeVideoPlayer.src = currentDirectStreamUrl;
+                  nativeVideoPlayer.load();
+                  nativeVideoPlayer.play().catch(e => console.log('Autoplay blocked:', e));
+                  startDirectStreamWatchdog();
+                }
+              });
           } else {
-            videoPlayerIframe.src = `${prefix}${currentImdbId}`;
+            // If no IMDb ID, fallback to original source
+            iframePlayerWrapper.style.display = 'none';
+            videoPlayerIframe.src = '';
+            nativePlayerWrapper.style.display = 'block';
+            if (currentDirectStreamUrl) {
+              nativeVideoPlayer.src = currentDirectStreamUrl;
+              nativeVideoPlayer.load();
+              nativeVideoPlayer.play().catch(e => console.log('Autoplay blocked:', e));
+              startDirectStreamWatchdog();
+            }
+          }
+        } else {
+          // Servers 2, 3, 4, 5 (Iframe embeds)
+          nativePlayerWrapper.style.display = 'none';
+          nativeVideoPlayer.pause();
+          nativeVideoPlayer.removeAttribute('src');
+          nativeVideoPlayer.load();
+          iframePlayerWrapper.style.display = 'block';
+
+          if (currentImdbId) {
+            let prefix = btn.dataset.srcPrefix;
+            if (currentMediaType === 'tv') {
+              if (prefix.includes('multiembed.mov')) {
+                videoPlayerIframe.src = `${prefix}${currentImdbId}&s=${currentSeason}&e=${currentEpisode}`;
+              } else {
+                prefix = prefix.replace('/movie/', '/tv/');
+                videoPlayerIframe.src = `${prefix}${currentImdbId}/${currentSeason}/${currentEpisode}`;
+              }
+            } else {
+              videoPlayerIframe.src = `${prefix}${currentImdbId}`;
+            }
           }
         }
       }
@@ -297,15 +430,8 @@ function setupEventListeners() {
     }
 
     const err = nativeVideoPlayer.error;
-    let message = 'Unknown playback error.';
     if (err) {
-      switch (err.code) {
-        case 1: message = 'Playback aborted by user/client request.'; break;
-        case 2: message = 'Network error while loading video stream.'; break;
-        case 3: message = 'Video decoding failed. The format or codec (like AC3/DTS audio) is not supported by your browser.'; break;
-        case 4: message = 'Video stream source format not supported.'; break;
-      }
-      console.error(`Native video error [Code ${err.code}]: ${message}`, err);
+      console.error(`Native video error [Code ${err.code}]`, err);
       
       // Stop further loading and error events on the native player immediately
       nativeVideoPlayer.removeAttribute('src');
@@ -313,20 +439,38 @@ function setupEventListeners() {
         nativeVideoPlayer.load();
       } catch(e) {}
 
-      // Hide external player container when player error fallback triggers
+      // Keep external player container visible so the user can still click it if the browser fails
       const extPlayerContainer = document.getElementById('external-player-container');
-      if (extPlayerContainer) extPlayerContainer.style.display = 'none';
+      if (extPlayerContainer) {
+        // Keep it visible
+      }
 
-      showPlayerToast(`Direct stream failed (${message}). Switching to Server 1...`);
-      
-      const server1Btn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
-      if (server1Btn) {
+      // Auto fallback to Server 1
+      const server1Btn = document.getElementById('server-btn-1');
+      if (server1Btn && server1Btn.style.display !== 'none') {
+        showPlayerToast('Direct stream playback error. Auto-switching to Server 1...');
         setTimeout(() => {
           server1Btn.click();
-        }, 1500);
+        }, 1000);
+      } else {
+        showPlayerToast('Playback failed. Please try VLC/MX Player or choose another server.');
       }
     }
   });
+
+  // Floating player audio trigger toggle
+  const floatingAudioTrigger = document.getElementById('player-floating-audio-trigger');
+  const floatingAudioMenu = document.getElementById('player-floating-audio-menu');
+  if (floatingAudioTrigger && floatingAudioMenu) {
+    floatingAudioTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      floatingAudioMenu.classList.toggle('open');
+    });
+    
+    document.addEventListener('click', () => {
+      floatingAudioMenu.classList.remove('open');
+    });
+  }
 }
 
 function scrollToMoviesSection() {
@@ -482,6 +626,10 @@ async function openDetailsModal(detailId, posterUrl) {
       throw new Error(errData.details || errData.error || `HTTP ${response.status}`);
     }
     const movie = await response.json();
+    currentMovieData = movie; // Store globally
+    
+    // Initial populate of quality/audio controls based on default release title
+    updateQualityAndAudioSelectorsForPlaying(movie.title);
 
     // Populate Details
     movieDetailPoster.src = posterUrl || (movie.screenshots && movie.screenshots[0]) || '';
@@ -529,12 +677,10 @@ async function openDetailsModal(detailId, posterUrl) {
                    lowerTitle.includes('complete') ||
                    lowerTitle.includes('added');
 
-    // Reset iframe buttons display style back to visible
+    // Reset server buttons display style back to visible
     const allServerBtns = document.querySelectorAll('#player-servers .server-btn');
     allServerBtns.forEach(btn => {
-      if (btn.id !== 'server-btn-direct') {
-        btn.style.display = 'inline-block';
-      }
+      btn.style.display = 'inline-block';
     });
 
     // Dynamic Download Links listing
@@ -545,17 +691,26 @@ async function openDetailsModal(detailId, posterUrl) {
         item.className = 'dwd-item';
         
         const isSample = dwd.title.toLowerCase().includes('sample');
-        const isEpisodeOrShow = dwd.isEpisode || isShow;
 
-        if (isEpisodeOrShow && !isSample) {
+        if (!isSample) {
           const resolvedDwdUrl = dwd.url.startsWith('/api/') ? API_BASE_URL + dwd.url : dwd.url;
+          let streamPlayUrl = dwd.url;
+          if (dwd.url.includes('/api/download')) {
+            streamPlayUrl = dwd.url.replace('/api/download', '/api/stream-play');
+          }
+          const absoluteStreamPlayUrl = streamPlayUrl.startsWith('/api/') ? window.location.origin + streamPlayUrl : streamPlayUrl;
+          const intentUrl = `intent:${absoluteStreamPlayUrl}#Intent;action=android.intent.action.VIEW;type=video/*;end`;
+
           item.innerHTML = `
             <div class="dwd-lbl" title="${dwd.title}">${dwd.title}</div>
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-              <button class="play-ep-btn" data-url="${dwd.url}" data-title="${dwd.title}">
+              <button class="play-ep-btn" data-url="${streamPlayUrl}" data-title="${dwd.title}" style="padding: 8px 12px; font-size: 13px;">
                 <i class="fa-solid fa-circle-play"></i> Play Online
               </button>
-              <a href="${resolvedDwdUrl}" class="dwd-btn-action" target="_blank" style="padding: 8px 14px;">
+              <a href="${intentUrl}" class="play-vlc-btn" style="padding: 8px 12px; font-size: 13px; background: linear-gradient(135deg, #ff9900, #ff5500); color: white; border-radius: 6px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; font-weight: 600; box-shadow: 0 2px 8px rgba(255, 85, 0, 0.3);">
+                <i class="fa-solid fa-up-right-from-square"></i> Play in VLC/MX
+              </a>
+              <a href="${resolvedDwdUrl}" class="dwd-btn-action" target="_blank" style="padding: 8px 12px; font-size: 13px;">
                 <i class="fa-solid fa-circle-down"></i> Download
               </a>
             </div>
@@ -573,7 +728,7 @@ async function openDetailsModal(detailId, posterUrl) {
           item.innerHTML = `
             <div class="dwd-lbl" title="${dwd.title}">${dwd.title}</div>
             <a href="${resolvedDwdUrl}" class="dwd-btn-action" target="_blank">
-              <i class="fa-solid fa-circle-down"></i> Download Now
+              <i class="fa-solid fa-circle-down"></i> Download Sample
             </a>
           `;
         }
@@ -690,7 +845,11 @@ async function openDetailsModal(detailId, posterUrl) {
       const btns = document.querySelectorAll('#player-servers .server-btn');
       btns.forEach(btn => btn.classList.remove('active'));
       
-      if (movie.streamUrl && streamOnline) {
+      if (currentEpisodesList.length > 0) {
+        // Default to Direct Stream (Premium) and auto-play the first episode
+        directServerBtn.classList.add('active');
+        playEpisode(currentEpisodesList[0].url, currentEpisodesList[0].title);
+      } else if (movie.streamUrl && streamOnline) {
         // Direct stream default (user preference)
         directServerBtn.classList.add('active');
         if (movie.streamUrl.includes('/api/netmirror-stream')) {
@@ -727,18 +886,62 @@ async function openDetailsModal(detailId, posterUrl) {
           startDirectStreamWatchdog();
         }
       } else if (currentImdbId) {
-        // Fallback to first available iframe server
-        const firstIframeBtn = document.querySelector('.server-btn[data-src-prefix]');
-        if (firstIframeBtn) {
-          firstIframeBtn.classList.add('active');
-          let prefix = firstIframeBtn.dataset.srcPrefix;
-          if (currentMediaType === 'tv') {
-            prefix = prefix.replace('/movie/', '/tv/');
+        // Fallback to Server 1 (NetMirror) first if available
+        const server1Btn = document.getElementById('server-btn-1');
+        if (server1Btn && server1Btn.style.display !== 'none') {
+          server1Btn.classList.add('active');
+          showPlayerToast('Loading Server 1 (Premium)...');
+          const fetchUrl = `${API_BASE_URL}/api/netmirror-stream?subjectid=${currentImdbId}&se=${currentMediaType === 'tv' ? currentSeason : 0}&ep=${currentMediaType === 'tv' ? currentEpisode : 0}&title=${encodeURIComponent(movie.title)}`;
+          fetch(fetchUrl)
+            .then(res => res.json())
+            .then(data => {
+              if (data.streamUrl) {
+                iframePlayerWrapper.style.display = 'none';
+                videoPlayerIframe.src = '';
+                nativePlayerWrapper.style.display = 'block';
+                nativeVideoPlayer.src = data.streamUrl.startsWith('/api/') ? API_BASE_URL + data.streamUrl : data.streamUrl;
+                nativeVideoPlayer.load();
+                nativeVideoPlayer.play().catch(e => console.log('Autoplay blocked:', e));
+                startDirectStreamWatchdog();
+              } else if (data.iframeUrl) {
+                nativePlayerWrapper.style.display = 'none';
+                nativeVideoPlayer.removeAttribute('src');
+                nativeVideoPlayer.load();
+                iframePlayerWrapper.style.display = 'block';
+                videoPlayerIframe.src = data.iframeUrl.startsWith('/api/') ? API_BASE_URL + data.iframeUrl : data.iframeUrl;
+              }
+            })
+            .catch(err => {
+              console.error('Fallback to Server 1 failed:', err);
+              // Fallback to iframe server (Server 2)
+              const firstIframeBtn = document.querySelector('.server-btn[data-src-prefix]');
+              if (firstIframeBtn) {
+                const btns = document.querySelectorAll('#player-servers .server-btn');
+                btns.forEach(b => b.classList.remove('active'));
+                firstIframeBtn.classList.add('active');
+                let prefix = firstIframeBtn.dataset.srcPrefix;
+                if (currentMediaType === 'tv') {
+                  prefix = prefix.replace('/movie/', '/tv/');
+                }
+                videoPlayerIframe.src = `${prefix}${currentImdbId}`;
+              }
+              nativePlayerWrapper.style.display = 'none';
+              iframePlayerWrapper.style.display = 'block';
+            });
+        } else {
+          // No Server 1, fallback directly to iframe server
+          const firstIframeBtn = document.querySelector('.server-btn[data-src-prefix]');
+          if (firstIframeBtn) {
+            firstIframeBtn.classList.add('active');
+            let prefix = firstIframeBtn.dataset.srcPrefix;
+            if (currentMediaType === 'tv') {
+              prefix = prefix.replace('/movie/', '/tv/');
+            }
+            videoPlayerIframe.src = `${prefix}${currentImdbId}`;
           }
-          videoPlayerIframe.src = `${prefix}${currentImdbId}`;
+          nativePlayerWrapper.style.display = 'none';
+          iframePlayerWrapper.style.display = 'block';
         }
-        nativePlayerWrapper.style.display = 'none';
-        iframePlayerWrapper.style.display = 'block';
       } else {
         // Missing IMDb ID and direct stream is down/offline, but show contains play online episodes!
         nativePlayerWrapper.style.display = 'block';
@@ -746,12 +949,18 @@ async function openDetailsModal(detailId, posterUrl) {
         videoPlayerIframe.src = '';
         nativeVideoPlayer.removeAttribute('src');
         nativeVideoPlayer.load();
-        
-        // Hide iframe server buttons since IMDb is missing
+      }
+
+      // Hide IMDb-dependent servers if IMDb ID is missing
+      if (!currentImdbId) {
         const iframeBtns = document.querySelectorAll('#player-servers .server-btn[data-src-prefix]');
         iframeBtns.forEach(btn => {
           btn.style.display = 'none';
         });
+        const server1Btn = document.getElementById('server-btn-1');
+        if (server1Btn) {
+          server1Btn.style.display = 'none';
+        }
       }
     } else {
       playerBoxContainer.style.display = 'none';
@@ -933,8 +1142,175 @@ function showPlayerToast(message) {
   }, 3500);
 }
 
+// Populate quality options and audio languages selector dynamically
+function updateQualityAndAudioSelectorsForPlaying(currentTitle) {
+  const qualityContainer = document.getElementById('player-quality-container');
+  const qualityOptions = document.getElementById('player-quality-options');
+  const audioContainer = document.getElementById('player-audio-container');
+  const audioOptions = document.getElementById('player-audio-options');
+
+  if (!qualityContainer || !qualityOptions || !audioContainer || !audioOptions) return;
+
+  // Reset display
+  qualityContainer.style.display = 'none';
+  qualityOptions.innerHTML = '';
+  audioContainer.style.display = 'none';
+  audioOptions.innerHTML = '';
+
+  if (!currentMovieData || !currentMovieData.downloads || currentMovieData.downloads.length === 0) return;
+
+  // Extract episode number/id if any (e.g. "Episode 1", "Ep 01")
+  let epMatch = currentTitle.match(/(?:ep|episode)\s*[-–]?\s*(\d+)/i);
+  let epNum = epMatch ? epMatch[1] : null;
+
+  // Filter downloads that match this episode (or match all if it's a single movie)
+  const validDownloads = currentMovieData.downloads.filter(d => {
+    if (d.title.toLowerCase().includes('sample')) return false;
+    if (epNum) {
+      const match = d.title.match(/(?:ep|episode)\s*[-–]?\s*(\d+)/i);
+      return match && match[1] === epNum;
+    }
+    return true;
+  });
+
+  // 1. Group & parse qualities
+  const qualities = [];
+  validDownloads.forEach(d => {
+    const titleLower = d.title.toLowerCase();
+    let qLabel = null;
+    if (titleLower.includes('2160p') || titleLower.includes('4k')) qLabel = '4K (2160p)';
+    else if (titleLower.includes('1080p')) qLabel = '1080p (FHD)';
+    else if (titleLower.includes('720p')) qLabel = '720p (HD)';
+    else if (titleLower.includes('480p')) qLabel = '480p (SD)';
+    else if (titleLower.includes('540p')) qLabel = '540p';
+
+    if (qLabel && !qualities.some(q => q.label === qLabel)) {
+      qualities.push({ label: qLabel, url: d.url, title: d.title });
+    }
+  });
+
+  const order = ['4K (2160p)', '1080p (FHD)', '720p (HD)', '540p', '480p (SD)'];
+  qualities.sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label));
+
+  if (qualities.length > 1) {
+    qualityContainer.style.display = 'block';
+    qualities.forEach(q => {
+      const btn = document.createElement('button');
+      btn.className = 'quality-btn';
+      btn.textContent = q.label;
+      if (q.title === currentTitle) {
+        btn.classList.add('active');
+      }
+      btn.addEventListener('click', () => {
+        qualityOptions.querySelectorAll('.quality-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        let streamPlayUrl = q.url;
+        if (q.url.includes('/api/download')) {
+          streamPlayUrl = q.url.replace('/api/download', '/api/stream-play');
+        }
+        playEpisode(streamPlayUrl, q.title);
+      });
+      qualityOptions.appendChild(btn);
+    });
+  }
+
+  // 2. Group & parse audio languages
+  const audios = [];
+  validDownloads.forEach(d => {
+    const titleLower = d.title.toLowerCase();
+    let langLabel = null;
+    if (titleLower.includes('dual audio') || (titleLower.includes('hindi') && titleLower.includes('english'))) {
+      langLabel = 'Dual Audio [Hindi+Eng]';
+    } else if (titleLower.includes('hindi')) {
+      langLabel = 'Hindi';
+    } else if (titleLower.includes('english') || titleLower.includes('eng')) {
+      langLabel = 'English';
+    } else if (titleLower.includes('tamil')) {
+      langLabel = 'Tamil';
+    } else if (titleLower.includes('telugu')) {
+      langLabel = 'Telugu';
+    } else if (titleLower.includes('japanese') || titleLower.includes('jap')) {
+      langLabel = 'Japanese';
+    }
+
+    if (langLabel && !audios.some(a => a.label === langLabel)) {
+      audios.push({ label: langLabel, url: d.url, title: d.title });
+    }
+  });
+
+  const floatingAudioContainer = document.getElementById('player-floating-audio-container');
+  const floatingAudioMenu = document.getElementById('player-floating-audio-menu');
+  if (floatingAudioContainer && floatingAudioMenu) {
+    floatingAudioContainer.style.display = 'none';
+    floatingAudioMenu.innerHTML = '';
+  }
+
+  if (audios.length > 1) {
+    audioContainer.style.display = 'block';
+    if (floatingAudioContainer && floatingAudioMenu) {
+      floatingAudioContainer.style.display = 'block';
+    }
+    
+    audios.forEach(a => {
+      const btn = document.createElement('button');
+      btn.className = 'audio-btn';
+      btn.textContent = a.label;
+      if (a.title === currentTitle) {
+        btn.classList.add('active');
+      }
+      btn.addEventListener('click', () => {
+        audioOptions.querySelectorAll('.audio-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        let streamPlayUrl = a.url;
+        if (a.url.includes('/api/download')) {
+          streamPlayUrl = a.url.replace('/api/download', '/api/stream-play');
+        }
+        playEpisode(streamPlayUrl, a.title);
+      });
+      audioOptions.appendChild(btn);
+
+      // Populate floating player dropdown menu
+      if (floatingAudioMenu) {
+        const item = document.createElement('div');
+        item.className = 'player-floating-audio-item';
+        if (a.title === currentTitle) {
+          item.classList.add('active');
+        }
+        item.innerHTML = `<span>${a.label}</span> <i class="fa-solid fa-check check-icon"></i>`;
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          floatingAudioMenu.querySelectorAll('.player-floating-audio-item').forEach(el => el.classList.remove('active'));
+          item.classList.add('active');
+          floatingAudioMenu.classList.remove('open');
+          
+          let streamPlayUrl = a.url;
+          if (a.url.includes('/api/download')) {
+            streamPlayUrl = a.url.replace('/api/download', '/api/stream-play');
+          }
+          playEpisode(streamPlayUrl, a.title);
+        });
+        floatingAudioMenu.appendChild(item);
+      }
+    });
+  } else {
+    // If it's a single file dual audio, show helpful information
+    const isDualAudioFile = currentTitle.toLowerCase().includes('dual audio') || 
+                            currentTitle.toLowerCase().includes('multi audio') ||
+                            currentTitle.toLowerCase().includes('hindi') && (currentTitle.toLowerCase().includes('english') || currentTitle.toLowerCase().includes('tamil') || currentTitle.toLowerCase().includes('telugu')) ||
+                            currentMovieData.title.toLowerCase().includes('dual audio') ||
+                            currentMovieData.title.toLowerCase().includes('multi audio');
+    if (isDualAudioFile) {
+      audioContainer.style.display = 'block';
+      audioOptions.innerHTML = `<span style="font-size: 13px; color: #aaa; line-height: 1.4;"><i class="fa-solid fa-circle-info"></i> Dual Audio tracks are natively selectable in VLC / MX Player. Click <strong>"Play in VLC/MX"</strong> below to choose audio language.</span>`;
+    }
+  }
+}
+
 // Play Episode on-demand handler
 async function playEpisode(epUrl, epTitle) {
+  // Update quality and audio selector buttons for the playing stream
+  updateQualityAndAudioSelectorsForPlaying(epTitle);
+
   // Update currently playing index
   const idx = currentEpisodesList.findIndex(d => d.url === epUrl);
   if (idx !== -1) {
@@ -958,12 +1334,20 @@ async function playEpisode(epUrl, epTitle) {
     const activeServerBtn = document.querySelector('#player-servers .server-btn.active');
     const serverId = activeServerBtn ? activeServerBtn.id : '';
     if (serverId === 'server-btn-direct') {
-      showPlayerToast('Direct stream unavailable for virtual links. Switching to Server 1...');
-      const server1Btn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
-      if (server1Btn) {
+      const server1Btn = document.getElementById('server-btn-1');
+      if (server1Btn && server1Btn.style.display !== 'none') {
+        showPlayerToast('Direct stream unavailable. Switching to Server 1...');
         server1Btn.click();
         setTimeout(() => playEpisode(epUrl, epTitle), 100);
         return;
+      } else {
+        const iframeBtn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
+        if (iframeBtn) {
+          showPlayerToast('Direct stream unavailable. Switching to Server 2...');
+          iframeBtn.click();
+          setTimeout(() => playEpisode(epUrl, epTitle), 100);
+          return;
+        }
       }
     }
   } else {
@@ -988,17 +1372,36 @@ async function playEpisode(epUrl, epTitle) {
   // Smooth scroll to video player
   document.getElementById('player-box-container').scrollIntoView({ behavior: 'smooth' });
 
+  const directBtn = document.getElementById('server-btn-direct');
+  if (directBtn && !epUrl.startsWith('virtual-ep-')) {
+     const allBtns = document.querySelectorAll('#player-servers .server-btn');
+     allBtns.forEach(b => b.classList.remove('active'));
+     directBtn.classList.add('active');
+  }
+
   const activeServerBtn = document.querySelector('#player-servers .server-btn.active');
   const serverId = activeServerBtn ? activeServerBtn.id : '';
 
-  if (serverId === 'server-btn-direct') {
+  if (serverId === 'server-btn-direct' || serverId === 'server-btn-1') {
     try {
       let fetchUrl = '';
-      if (epUrl.includes('/api/netmirror-stream')) {
-        fetchUrl = epUrl;
+      if (serverId === 'server-btn-direct') {
+        if (epUrl.includes('/api/netmirror-stream')) {
+          fetchUrl = epUrl;
+        } else {
+          const epId = epUrl.split('?id=')[1] || btoa(epUrl);
+          fetchUrl = `${API_BASE_URL}/api/episode-stream?id=${epId}`;
+        }
       } else {
-        const epId = epUrl.split('?id=')[1] || btoa(epUrl);
-        fetchUrl = `${API_BASE_URL}/api/episode-stream?id=${epId}`;
+        // server-btn-1 (NetMirror)
+        if (currentImdbId) {
+          fetchUrl = `${API_BASE_URL}/api/netmirror-stream?subjectid=${currentImdbId}&se=${season}&ep=${episode}&title=${encodeURIComponent(currentMovieData ? currentMovieData.title : '')}`;
+        } else if (epUrl.includes('/api/netmirror-stream')) {
+          fetchUrl = epUrl;
+        } else {
+          const epId = epUrl.split('?id=')[1] || btoa(epUrl);
+          fetchUrl = `${API_BASE_URL}/api/episode-stream?id=${epId}`;
+        }
       }
       
       const res = await fetch(fetchUrl.startsWith('http') ? fetchUrl : API_BASE_URL + fetchUrl);
@@ -1018,6 +1421,13 @@ async function playEpisode(epUrl, epTitle) {
         const resolvedIframeUrl = data.iframeUrl.startsWith('/api/') ? API_BASE_URL + data.iframeUrl : data.iframeUrl;
         videoPlayerIframe.src = resolvedIframeUrl;
       } else if (data.streamUrl) {
+        // Direct stream codec and container compatibility warning
+        const isH265 = data.streamUrl.toLowerCase().includes('h265') || data.streamUrl.toLowerCase().includes('hevc');
+        const isMkv = data.streamUrl.toLowerCase().includes('.mkv') || data.streamUrl.toLowerCase().includes('/bt/');
+        if (isH265 || isMkv) {
+          showPlayerToast('Tip: Use Play in VLC/MX Player if browser fails to load this format.');
+        }
+
         iframePlayerWrapper.style.display = 'none';
         videoPlayerIframe.src = '';
         nativePlayerWrapper.style.display = 'block';
@@ -1042,22 +1452,21 @@ async function playEpisode(epUrl, epTitle) {
       console.error('Failed to load direct stream:', err);
       const extPlayerContainer = document.getElementById('external-player-container');
       if (extPlayerContainer) extPlayerContainer.style.display = 'none';
-      showPlayerToast('Direct stream offline. Switching to Server 1...');
-      const server1Btn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
-      if (server1Btn) {
-        server1Btn.click();
-        setTimeout(() => playEpisode(epUrl, epTitle), 100);
-      }
+      showPlayerToast('Stream offline. Try playing in VLC/MX Player or switch server.');
     }
   } else if (currentImdbId) {
     let prefix = activeServerBtn.dataset.srcPrefix;
     let iframeSrc = '';
     
-    if (prefix.includes('multiembed.mov')) {
-      iframeSrc = `${prefix}${currentImdbId}&s=${season}&e=${episode}`;
+    if (currentMediaType === 'tv') {
+      if (prefix.includes('multiembed.mov')) {
+        iframeSrc = `${prefix}${currentImdbId}&s=${season}&e=${episode}`;
+      } else {
+        prefix = prefix.replace('/movie/', '/tv/');
+        iframeSrc = `${prefix}${currentImdbId}/${season}/${episode}`;
+      }
     } else {
-      prefix = prefix.replace('/movie/', '/tv/');
-      iframeSrc = `${prefix}${currentImdbId}/${season}/${episode}`;
+      iframeSrc = `${prefix}${currentImdbId}`;
     }
     
     nativePlayerWrapper.style.display = 'none';
@@ -1070,11 +1479,12 @@ async function playEpisode(epUrl, epTitle) {
     iframePlayerWrapper.style.display = 'block';
     videoPlayerIframe.src = iframeSrc;
   } else {
-    showPlayerToast('IMDb ID missing. Playing direct stream...');
+    showPlayerToast('IMDb ID missing. Please play in VLC / MX Player.');
     const directBtn = document.getElementById('server-btn-direct');
     if (directBtn) {
-      directBtn.click();
-      setTimeout(() => playEpisode(epUrl, epTitle), 100);
+      const btns = document.querySelectorAll('#player-servers .server-btn');
+      btns.forEach(b => b.classList.remove('active'));
+      directBtn.classList.add('active');
     }
   }
 }
@@ -1309,20 +1719,25 @@ function clearDirectStreamWatchdog() {
 
 function startDirectStreamWatchdog() {
   clearDirectStreamWatchdog();
+  
+  const activeBtn = document.querySelector('#player-servers .server-btn.active');
+  if (!activeBtn || activeBtn.id !== 'server-btn-direct') {
+    return;
+  }
+
   directStreamWatchdog = setTimeout(() => {
-    const activeBtn = document.querySelector('#player-servers .server-btn.active');
-    if (activeBtn && activeBtn.id === 'server-btn-direct' && nativeVideoPlayer.paused) {
-      console.log('[Watchdog] Direct stream buffering timeout (180s) reached. Swapping to Server 1...');
-      const serverBtn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
-      if (serverBtn) {
-        nativeVideoPlayer.pause();
-        nativeVideoPlayer.removeAttribute('src');
-        nativeVideoPlayer.load();
-        serverBtn.click();
-        showPlayerToast('Direct stream buffered slowly (exceeded 180s). Swapped to Server 1...');
+    const currentActiveBtn = document.querySelector('#player-servers .server-btn.active');
+    if (currentActiveBtn && currentActiveBtn.id === 'server-btn-direct' && nativeVideoPlayer.paused) {
+      console.log('[Watchdog] Direct Stream failed to play within 30s. Auto-switching to Server 1.');
+      const server1Btn = document.getElementById('server-btn-1');
+      if (server1Btn && server1Btn.style.display !== 'none') {
+        showPlayerToast('Direct stream loading failed. Auto-switching to Server 1...');
+        server1Btn.click();
+      } else {
+        showPlayerToast('Direct stream loading failed. Please play in VLC/MX Player or choose another server.');
       }
     }
-  }, 180000); // 180 seconds buffering switch time
+  }, 30000); // 30 seconds buffering switch time
 }
 
 // Hook up native video playback watchdog clear states
