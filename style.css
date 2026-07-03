@@ -24,13 +24,14 @@
   padding: 0;
 }
 
-body {
+html, body {
   background-color: var(--bg-primary);
   color: var(--text-main);
   font-family: var(--font-sans);
   overflow-x: hidden;
   position: relative;
   min-height: 100vh;
+  width: 100%;
 }
 
 /* Background Glow Effects with Ambient Floating Animations */
@@ -942,6 +943,16 @@ footer {
   }
   .movies-grid, .skeleton-grid {
     gap: 20px;
+  }
+  .dwd-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 15px;
+  }
+  .dwd-lbl {
+    max-width: 100%;
+    white-space: normal;
   }
 }
 

@@ -19,6 +19,7 @@ let currentSeason = 1;
 let currentEpisode = 1;
 let currentDirectStreamUrl = null;
 let currentEpisodesList = [];
+let currentMovieData = null;
 let currentPlayingEpisodeIndex = -1;
 let directStreamWatchdog = null;
 
@@ -488,6 +489,10 @@ async function openDetailsModal(detailId, posterUrl) {
       throw new Error(errData.details || errData.error || `HTTP ${response.status}`);
     }
     const movie = await response.json();
+    currentMovieData = movie; // Store globally
+    
+    // Initial populate of quality/audio controls based on default release title
+    updateQualityAndAudioSelectorsForPlaying(movie.title);
 
     // Populate Details
     movieDetailPoster.src = posterUrl || (movie.screenshots && movie.screenshots[0]) || '';
@@ -948,8 +953,141 @@ function showPlayerToast(message) {
   }, 3500);
 }
 
+// Populate quality options and audio languages selector dynamically
+function updateQualityAndAudioSelectorsForPlaying(currentTitle) {
+  const qualityContainer = document.getElementById('player-quality-container');
+  const qualityOptions = document.getElementById('player-quality-options');
+  const audioContainer = document.getElementById('player-audio-container');
+  const audioOptions = document.getElementById('player-audio-options');
+
+  if (!qualityContainer || !qualityOptions || !audioContainer || !audioOptions) return;
+
+  // Reset display
+  qualityContainer.style.display = 'none';
+  qualityOptions.innerHTML = '';
+  audioContainer.style.display = 'none';
+  audioOptions.innerHTML = '';
+
+  if (!currentMovieData || !currentMovieData.downloads || currentMovieData.downloads.length === 0) return;
+
+  // Extract episode number/id if any (e.g. "Episode 1", "Ep 01")
+  let epMatch = currentTitle.match(/(?:ep|episode)\s*[-–]?\s*(\d+)/i);
+  let epNum = epMatch ? epMatch[1] : null;
+
+  // Filter downloads that match this episode (or match all if it's a single movie)
+  const validDownloads = currentMovieData.downloads.filter(d => {
+    if (d.title.toLowerCase().includes('sample')) return false;
+    if (epNum) {
+      const match = d.title.match(/(?:ep|episode)\s*[-–]?\s*(\d+)/i);
+      return match && match[1] === epNum;
+    }
+    return true;
+  });
+
+  // 1. Group & parse qualities
+  const qualities = [];
+  validDownloads.forEach(d => {
+    const titleLower = d.title.toLowerCase();
+    let qLabel = null;
+    if (titleLower.includes('2160p') || titleLower.includes('4k')) qLabel = '4K (2160p)';
+    else if (titleLower.includes('1080p')) qLabel = '1080p (FHD)';
+    else if (titleLower.includes('720p')) qLabel = '720p (HD)';
+    else if (titleLower.includes('480p')) qLabel = '480p (SD)';
+    else if (titleLower.includes('540p')) qLabel = '540p';
+
+    if (qLabel && !qualities.some(q => q.label === qLabel)) {
+      qualities.push({ label: qLabel, url: d.url, title: d.title });
+    }
+  });
+
+  const order = ['4K (2160p)', '1080p (FHD)', '720p (HD)', '540p', '480p (SD)'];
+  qualities.sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label));
+
+  if (qualities.length > 1) {
+    qualityContainer.style.display = 'block';
+    qualities.forEach(q => {
+      const btn = document.createElement('button');
+      btn.className = 'quality-btn';
+      btn.textContent = q.label;
+      if (q.title === currentTitle) {
+        btn.classList.add('active');
+      }
+      btn.addEventListener('click', () => {
+        qualityOptions.querySelectorAll('.quality-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        let streamPlayUrl = q.url;
+        if (q.url.includes('/api/download')) {
+          streamPlayUrl = q.url.replace('/api/download', '/api/stream-play');
+        }
+        playEpisode(streamPlayUrl, q.title);
+      });
+      qualityOptions.appendChild(btn);
+    });
+  }
+
+  // 2. Group & parse audio languages
+  const audios = [];
+  validDownloads.forEach(d => {
+    const titleLower = d.title.toLowerCase();
+    let langLabel = null;
+    if (titleLower.includes('dual audio') || (titleLower.includes('hindi') && titleLower.includes('english'))) {
+      langLabel = 'Dual Audio [Hindi+Eng]';
+    } else if (titleLower.includes('hindi')) {
+      langLabel = 'Hindi';
+    } else if (titleLower.includes('english') || titleLower.includes('eng')) {
+      langLabel = 'English';
+    } else if (titleLower.includes('tamil')) {
+      langLabel = 'Tamil';
+    } else if (titleLower.includes('telugu')) {
+      langLabel = 'Telugu';
+    } else if (titleLower.includes('japanese') || titleLower.includes('jap')) {
+      langLabel = 'Japanese';
+    }
+
+    if (langLabel && !audios.some(a => a.label === langLabel)) {
+      audios.push({ label: langLabel, url: d.url, title: d.title });
+    }
+  });
+
+  if (audios.length > 1) {
+    audioContainer.style.display = 'block';
+    audios.forEach(a => {
+      const btn = document.createElement('button');
+      btn.className = 'audio-btn';
+      btn.textContent = a.label;
+      if (a.title === currentTitle) {
+        btn.classList.add('active');
+      }
+      btn.addEventListener('click', () => {
+        audioOptions.querySelectorAll('.audio-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        let streamPlayUrl = a.url;
+        if (a.url.includes('/api/download')) {
+          streamPlayUrl = a.url.replace('/api/download', '/api/stream-play');
+        }
+        playEpisode(streamPlayUrl, a.title);
+      });
+      audioOptions.appendChild(btn);
+    });
+  } else {
+    // If it's a single file dual audio, show helpful information
+    const isDualAudioFile = currentTitle.toLowerCase().includes('dual audio') || 
+                            currentTitle.toLowerCase().includes('multi audio') ||
+                            currentTitle.toLowerCase().includes('hindi') && (currentTitle.toLowerCase().includes('english') || currentTitle.toLowerCase().includes('tamil') || currentTitle.toLowerCase().includes('telugu')) ||
+                            currentMovieData.title.toLowerCase().includes('dual audio') ||
+                            currentMovieData.title.toLowerCase().includes('multi audio');
+    if (isDualAudioFile) {
+      audioContainer.style.display = 'block';
+      audioOptions.innerHTML = `<span style="font-size: 13px; color: #aaa; line-height: 1.4;"><i class="fa-solid fa-circle-info"></i> Dual Audio tracks are natively selectable in VLC / MX Player. Click <strong>"Play in VLC/MX"</strong> below to choose audio language.</span>`;
+    }
+  }
+}
+
 // Play Episode on-demand handler
 async function playEpisode(epUrl, epTitle) {
+  // Update quality and audio selector buttons for the playing stream
+  updateQualityAndAudioSelectorsForPlaying(epTitle);
+
   // Update currently playing index
   const idx = currentEpisodesList.findIndex(d => d.url === epUrl);
   if (idx !== -1) {
@@ -1033,6 +1171,39 @@ async function playEpisode(epUrl, epTitle) {
         const resolvedIframeUrl = data.iframeUrl.startsWith('/api/') ? API_BASE_URL + data.iframeUrl : data.iframeUrl;
         videoPlayerIframe.src = resolvedIframeUrl;
       } else if (data.streamUrl) {
+        // Direct stream codec and container compatibility pre-check
+        const isH265 = data.streamUrl.toLowerCase().includes('h265') || data.streamUrl.toLowerCase().includes('hevc');
+        const isMkv = data.streamUrl.toLowerCase().includes('.mkv') || data.streamUrl.toLowerCase().includes('/bt/');
+        
+        let canPlay = true;
+        if (isH265) {
+          const testVid = document.createElement('video');
+          const support = testVid.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') || 
+                          testVid.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"');
+          if (support !== 'probably' && support !== 'maybe') {
+            canPlay = false;
+          }
+        }
+        if (isMkv) {
+          canPlay = false; // Web browsers never support MKV containers natively
+        }
+
+        if (!canPlay) {
+          console.log('[Player] Browser does not support H.265/HEVC or MKV stream natively. Silently falling back to Server 1...');
+          const server1Btn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
+          if (server1Btn) {
+            // Unset direct button active status and set Server 1 active
+            const directBtn = document.getElementById('server-btn-direct');
+            if (directBtn) directBtn.classList.remove('active');
+            server1Btn.classList.add('active');
+            
+            // Auto-switch immediately without displaying error toasts
+            server1Btn.click();
+            setTimeout(() => playEpisode(epUrl, epTitle), 100);
+            return;
+          }
+        }
+
         iframePlayerWrapper.style.display = 'none';
         videoPlayerIframe.src = '';
         nativePlayerWrapper.style.display = 'block';
