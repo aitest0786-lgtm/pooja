@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="style.css?v=3.5">
+  <link rel="stylesheet" href="style.css?v=4.3">
   <!-- NXM Favicon Logo -->
   <link rel="icon" type="image/png" href="/nxm_logo.png">
 </head>
@@ -164,6 +164,14 @@
                     <source src="" type="video/mp4">
                     Your browser does not support the video tag.
                   </video>
+                  <div class="player-loader-overlay" id="native-player-loader" style="display: none;">
+                    <div class="player-loader-content">
+                      <div class="player-loader-spinner"></div>
+                      <div class="player-loader-text">
+                        <span>P</span><span>O</span><span>O</span><span>J</span><span>A</span>
+                      </div>
+                    </div>
+                  </div>
                   <div class="external-player-container" id="external-player-container" style="display: none;">
                     <a href="" id="external-player-btn" class="external-player-btn"><i class="fa-solid fa-up-right-from-square"></i> Play in VLC / MX Player (Recommended for Mobile)</a>
                   </div>
@@ -172,6 +180,14 @@
                 <!-- Iframe Player (For fallback servers) -->
                 <div class="player-wrapper-iframe" id="iframe-player-wrapper" style="display: none;">
                   <iframe id="video-player-iframe" src="" frameborder="0" referrerpolicy="origin" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                  <div class="player-loader-overlay" id="iframe-player-loader" style="display: none;">
+                    <div class="player-loader-content">
+                      <div class="player-loader-spinner"></div>
+                      <div class="player-loader-text">
+                        <span>P</span><span>O</span><span>O</span><span>J</span><span>A</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- Episode Navigation (Only for web series / shows with episodes) -->
@@ -182,10 +198,14 @@
                 </div>
 
                 <!-- Server Selector -->
-                  <div class="server-selector" id="player-servers">
-                    <span class="server-selector-label"><i class="fa-solid fa-server"></i> Server:</span>
-                    <button class="server-btn active" id="server-btn-direct">Direct Stream (Premium)</button>
-                  </div>
+                <div class="server-selector" id="player-servers">
+                  <span class="server-selector-label"><i class="fa-solid fa-server"></i> Server:</span>
+                   <button class="server-btn active" id="server-btn-direct">Direct Stream (Premium)</button>
+                   <button class="server-btn" data-src-prefix="https://embed.su/embed/movie/">Server 1 (Embed.su)</button>
+                   <button class="server-btn" data-src-prefix="https://player.autoembed.cc/embed/movie/">Server 2 (Autoembed)</button>
+                   <button class="server-btn" data-src-prefix="https://vidsrc.vip/embed/movie/">Server 3 (Vidsrc.vip)</button>
+                   <button class="server-btn" data-src-prefix="https://vidsrc.net/embed/movie/">Server 4 (Vidsrc.net)</button>
+                </div>
 
                  <!-- Stream Quality Selector -->
                  <div class="quality-selector" id="player-quality-container" style="display: none;">
@@ -254,6 +274,6 @@
     </div>
   </footer>
 
-  <script src="app.js?v=3.9"></script>
+  <script src="app.js?v=4.3"></script>
 </body>
 </html>

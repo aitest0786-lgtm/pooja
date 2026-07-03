@@ -56,6 +56,83 @@ const nativeVideoPlayer = document.getElementById('native-video-player');
 const iframePlayerWrapper = document.getElementById('iframe-player-wrapper');
 const directServerBtn = document.getElementById('server-btn-direct');
 
+// Video Player Loaders
+const nativePlayerLoader = document.getElementById('native-player-loader');
+const iframePlayerLoader = document.getElementById('iframe-player-loader');
+
+function showNativeLoader() {
+  if (nativePlayerLoader) nativePlayerLoader.style.display = 'flex';
+}
+function hideNativeLoader() {
+  if (nativePlayerLoader) nativePlayerLoader.style.display = 'none';
+}
+function showIframeLoader() {
+  if (iframePlayerLoader) iframePlayerLoader.style.display = 'flex';
+}
+function hideIframeLoader() {
+  if (iframePlayerLoader) iframePlayerLoader.style.display = 'none';
+}
+
+// Intercept videoPlayerIframe src property changes to auto-manage iframe loader
+if (videoPlayerIframe) {
+  const originalSrcProp = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'src');
+  Object.defineProperty(videoPlayerIframe, 'src', {
+    get() {
+      return originalSrcProp.get.call(this);
+    },
+    set(val) {
+      if (!val || val === '') {
+        hideIframeLoader();
+      } else {
+        showIframeLoader();
+      }
+      originalSrcProp.set.call(this, val);
+    }
+  });
+
+  // Hide loader when iframe finishes loading
+  videoPlayerIframe.addEventListener('load', hideIframeLoader);
+}
+
+// Video Volume Booster (Web Audio API)
+let audioCtx = null;
+let gainNode = null;
+let audioSource = null;
+
+function boostVideoVolume(boostFactor = 2.5) {
+  if (!nativeVideoPlayer) return;
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      gainNode = audioCtx.createGain();
+      audioSource = audioCtx.createMediaElementSource(nativeVideoPlayer);
+      audioSource.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      console.log('[Volume Booster] Initialized with 2.5x boost.');
+    }
+    gainNode.gain.value = boostFactor;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+  } catch (e) {
+    console.error('[Volume Booster] Failed to initialize:', e);
+  }
+}
+
+// Listen to native player events for loading/buffering loader
+if (nativeVideoPlayer) {
+  nativeVideoPlayer.addEventListener('waiting', showNativeLoader);
+  nativeVideoPlayer.addEventListener('seeking', showNativeLoader);
+  nativeVideoPlayer.addEventListener('loadstart', showNativeLoader);
+  nativeVideoPlayer.addEventListener('playing', () => {
+    hideNativeLoader();
+    boostVideoVolume(2.5); // Auto boost to 250%
+  });
+  nativeVideoPlayer.addEventListener('canplay', hideNativeLoader);
+  nativeVideoPlayer.addEventListener('seeked', hideNativeLoader);
+  nativeVideoPlayer.addEventListener('error', hideNativeLoader);
+}
+
 // Hero elements
 const heroBanner = document.getElementById('hero-banner');
 const featuredTitle = document.getElementById('featured-title');
@@ -320,25 +397,12 @@ function setupEventListeners() {
         // Keep it visible
       }
 
-      // If it is a codec / format support issue, switch silently and instantly (in 100ms)
+      // Tell user to play in VLC/MX Player or switch manually instead of auto-switching
       const isFormatError = err.code === 3 || err.code === 4;
-      const switchDelay = isFormatError ? 100 : 3000;
-      
       if (isFormatError) {
-        showPlayerToast(`Loading compatibility player (Server 1)...`);
+        showPlayerToast('Format not supported by browser. Play in VLC/MX Player or choose Server 1.');
       } else {
-        showPlayerToast(`Stream offline. Switching to Server 1...`);
-      }
-      
-      const server1Btn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
-      if (server1Btn) {
-        setTimeout(() => {
-          // Only auto-switch if the user is still selected on the direct stream server
-          const activeBtn = document.querySelector('#player-servers .server-btn.active');
-          if (activeBtn && activeBtn.id === 'server-btn-direct') {
-            server1Btn.click();
-          }
-        }, switchDelay);
+        showPlayerToast('Playback failed. Try VLC/MX Player or switch to Server 1/2/3/4.');
       }
     }
   });
@@ -754,6 +818,10 @@ async function openDetailsModal(detailId, posterUrl) {
           }
           startDirectStreamWatchdog();
         }
+      } else if (currentEpisodesList.length > 0) {
+        // Default to Direct Stream (Premium) and auto-play the first episode
+        directServerBtn.classList.add('active');
+        playEpisode(currentEpisodesList[0].url, currentEpisodesList[0].title);
       } else if (currentImdbId) {
         // Fallback to first available iframe server
         const firstIframeBtn = document.querySelector('.server-btn[data-src-prefix]');
@@ -1149,6 +1217,13 @@ async function playEpisode(epUrl, epTitle) {
   // Smooth scroll to video player
   document.getElementById('player-box-container').scrollIntoView({ behavior: 'smooth' });
 
+  const directBtn = document.getElementById('server-btn-direct');
+  if (directBtn && !epUrl.startsWith('virtual-ep-')) {
+    const allBtns = document.querySelectorAll('#player-servers .server-btn');
+    allBtns.forEach(b => b.classList.remove('active'));
+    directBtn.classList.add('active');
+  }
+
   const activeServerBtn = document.querySelector('#player-servers .server-btn.active');
   const serverId = activeServerBtn ? activeServerBtn.id : '';
 
@@ -1179,37 +1254,11 @@ async function playEpisode(epUrl, epTitle) {
         const resolvedIframeUrl = data.iframeUrl.startsWith('/api/') ? API_BASE_URL + data.iframeUrl : data.iframeUrl;
         videoPlayerIframe.src = resolvedIframeUrl;
       } else if (data.streamUrl) {
-        // Direct stream codec and container compatibility pre-check
+        // Direct stream codec and container compatibility warning
         const isH265 = data.streamUrl.toLowerCase().includes('h265') || data.streamUrl.toLowerCase().includes('hevc');
         const isMkv = data.streamUrl.toLowerCase().includes('.mkv') || data.streamUrl.toLowerCase().includes('/bt/');
-        
-        let canPlay = true;
-        if (isH265) {
-          const testVid = document.createElement('video');
-          const support = testVid.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') || 
-                          testVid.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"');
-          if (support !== 'probably' && support !== 'maybe') {
-            canPlay = false;
-          }
-        }
-        if (isMkv) {
-          canPlay = false; // Web browsers never support MKV containers natively
-        }
-
-        if (!canPlay) {
-          console.log('[Player] Browser does not support H.265/HEVC or MKV stream natively. Silently falling back to Server 1...');
-          const server1Btn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
-          if (server1Btn) {
-            // Unset direct button active status and set Server 1 active
-            const directBtn = document.getElementById('server-btn-direct');
-            if (directBtn) directBtn.classList.remove('active');
-            server1Btn.classList.add('active');
-            
-            // Auto-switch immediately without displaying error toasts
-            server1Btn.click();
-            setTimeout(() => playEpisode(epUrl, epTitle), 100);
-            return;
-          }
+        if (isH265 || isMkv) {
+          showPlayerToast('Tip: Use Play in VLC/MX Player if browser fails to load this format.');
         }
 
         iframePlayerWrapper.style.display = 'none';
@@ -1236,22 +1285,21 @@ async function playEpisode(epUrl, epTitle) {
       console.error('Failed to load direct stream:', err);
       const extPlayerContainer = document.getElementById('external-player-container');
       if (extPlayerContainer) extPlayerContainer.style.display = 'none';
-      showPlayerToast('Direct stream offline. Switching to Server 1...');
-      const server1Btn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
-      if (server1Btn) {
-        server1Btn.click();
-        setTimeout(() => playEpisode(epUrl, epTitle), 100);
-      }
+      showPlayerToast('Direct stream offline. Try playing in VLC/MX Player or select Server 1.');
     }
   } else if (currentImdbId) {
     let prefix = activeServerBtn.dataset.srcPrefix;
     let iframeSrc = '';
     
-    if (prefix.includes('multiembed.mov')) {
-      iframeSrc = `${prefix}${currentImdbId}&s=${season}&e=${episode}`;
+    if (currentMediaType === 'tv') {
+      if (prefix.includes('multiembed.mov')) {
+        iframeSrc = `${prefix}${currentImdbId}&s=${season}&e=${episode}`;
+      } else {
+        prefix = prefix.replace('/movie/', '/tv/');
+        iframeSrc = `${prefix}${currentImdbId}/${season}/${episode}`;
+      }
     } else {
-      prefix = prefix.replace('/movie/', '/tv/');
-      iframeSrc = `${prefix}${currentImdbId}/${season}/${episode}`;
+      iframeSrc = `${prefix}${currentImdbId}`;
     }
     
     nativePlayerWrapper.style.display = 'none';
@@ -1264,11 +1312,12 @@ async function playEpisode(epUrl, epTitle) {
     iframePlayerWrapper.style.display = 'block';
     videoPlayerIframe.src = iframeSrc;
   } else {
-    showPlayerToast('IMDb ID missing. Playing direct stream...');
+    showPlayerToast('IMDb ID missing. Please play in VLC / MX Player.');
     const directBtn = document.getElementById('server-btn-direct');
     if (directBtn) {
-      directBtn.click();
-      setTimeout(() => playEpisode(epUrl, epTitle), 100);
+      const btns = document.querySelectorAll('#player-servers .server-btn');
+      btns.forEach(b => b.classList.remove('active'));
+      directBtn.classList.add('active');
     }
   }
 }
@@ -1506,15 +1555,8 @@ function startDirectStreamWatchdog() {
   directStreamWatchdog = setTimeout(() => {
     const activeBtn = document.querySelector('#player-servers .server-btn.active');
     if (activeBtn && activeBtn.id === 'server-btn-direct' && nativeVideoPlayer.paused) {
-      console.log('[Watchdog] Direct stream buffering timeout (180s) reached. Swapping to Server 1...');
-      const serverBtn = document.querySelector('#player-servers .server-btn[data-src-prefix]');
-      if (serverBtn) {
-        nativeVideoPlayer.pause();
-        nativeVideoPlayer.removeAttribute('src');
-        nativeVideoPlayer.load();
-        serverBtn.click();
-        showPlayerToast('Direct stream buffered slowly (exceeded 180s). Swapped to Server 1...');
-      }
+      console.log('[Watchdog] Direct stream buffering timeout (180s) reached.');
+      showPlayerToast('Tip: If stream is buffering slowly, you can manually switch to Server 1/2/3/4.');
     }
   }, 180000); // 180 seconds buffering switch time
 }
