@@ -1414,9 +1414,9 @@ footer {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  padding-top: 16px;
-  margin-top: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 14px;
+  margin-bottom: 14px;
 }
 
 .audio-selector-label {
@@ -1650,6 +1650,88 @@ footer {
     color: #ff0055;
     text-shadow: 0 0 20px #ff0055, 0 0 35px #ff0055;
   }
+}
+
+/* Floating Audio Language Switcher Styles */
+.player-wrapper-native {
+  position: relative;
+}
+.player-floating-audio {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  z-index: 100;
+}
+.player-floating-audio-btn {
+  background: rgba(15, 15, 20, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 30px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+}
+.player-floating-audio-btn:hover {
+  background: rgba(130, 87, 229, 0.85);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: scale(1.05);
+}
+.player-floating-audio-dropdown {
+  position: absolute;
+  top: 45px;
+  right: 0;
+  background: rgba(15, 15, 20, 0.95);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 6px;
+  min-width: 190px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 101;
+}
+.player-floating-audio-dropdown.open {
+  display: flex;
+}
+.player-floating-audio-item {
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+.player-floating-audio-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.player-floating-audio-item.active {
+  background: rgba(130, 87, 229, 0.2);
+  color: #a78bfa;
+  font-weight: 600;
+}
+.player-floating-audio-item .check-icon {
+  opacity: 0;
+  font-size: 0.75rem;
+  color: #a78bfa;
+}
+.player-floating-audio-item.active .check-icon {
+  opacity: 1;
 }
 
 

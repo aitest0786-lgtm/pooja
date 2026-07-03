@@ -1063,7 +1063,14 @@ app.get('/api/movie-details', async (req, res) => {
     $('a').each((i, el) => {
       const href = $(el).attr('href');
       if (href) {
-        const isTvEpisode = href.includes('/tv/') && href.includes('-download-') && href.endsWith('.html');
+        const isTvEpisode = (href.includes('/tv/') || href.includes('/series/') || href.includes('/web-series/') || href.includes('/show/')) && 
+                            href.endsWith('.html') && 
+                            !href.includes('-full.html') && 
+                            !href.includes('-complete.html') &&
+                            !href.includes('-tv-shows') &&
+                            !href.includes('-web-series') &&
+                            !href.includes('/category/') &&
+                            !href.includes('index.html');
         if (isTvEpisode) {
           const absHref = href.startsWith('http') ? href : new URL(href, detailUrl).href;
           if (!episodeLinks.includes(absHref)) {
@@ -1185,7 +1192,14 @@ app.get('/api/movie-details', async (req, res) => {
           if (!href) return;
           
           const isDownloadPath = href.includes('/movies/download/') || href.includes('/download/');
-          const isTvEpisode = href.includes('/tv/') && href.includes('-download-') && href.endsWith('.html');
+          const isTvEpisode = (href.includes('/tv/') || href.includes('/series/') || href.includes('/web-series/') || href.includes('/show/')) && 
+                              href.endsWith('.html') && 
+                              !href.includes('-full.html') && 
+                              !href.includes('-complete.html') &&
+                              !href.includes('-tv-shows') &&
+                              !href.includes('-web-series') &&
+                              !href.includes('/category/') &&
+                              !href.includes('index.html');
           const isMatch = isDownloadPath || isTvEpisode || (!href.includes('.html') && (href.includes('checkyourlinks') || href.includes('cdn') || href.includes('.mp4') || href.includes('download') || href.includes('lnk-lnk')));
           
           if (isMatch) {
@@ -1718,12 +1732,47 @@ app.get('/api/stream-play', async (req, res) => {
 
 // 5. API: NetMirror signed stream URL generator
 app.get('/api/netmirror-stream', async (req, res) => {
-  const { subjectid, se, ep, dp, title } = req.query;
+  let { subjectid, se, ep, dp, title } = req.query;
   if (!subjectid) {
     return res.status(400).json({ error: 'Missing subjectid' });
   }
 
   try {
+    let resolvedSubjectId = subjectid;
+    let resolvedDp = dp || '';
+    let resolvedTitle = title || '';
+    let mediaType = (se && se !== '0') ? 'tv' : 'movie';
+
+    if (subjectid.startsWith('tt')) {
+      console.log(`[Resolver] IMDb ID detected in stream generator: ${subjectid}. Searching NetMirror for: "${title}"...`);
+      const cleanTitle = cleanMovieTitle(title);
+      try {
+        const searchUrl = `https://api2.imdb4.shop/api/search2/${encodeURIComponent(cleanTitle)}?page=0`;
+        const searchRes = await axiosGetWithRetry(searchUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 });
+        const results = searchRes.data.results || [];
+        
+        let matchedItem = null;
+        if (results.length > 0) {
+          matchedItem = results.find(item => item.media_type === mediaType) || results[0];
+        }
+        
+        if (matchedItem) {
+          const detailUrl = `https://api2.imdb3.shop/api/${matchedItem.media_type || mediaType}/${matchedItem.id}`;
+          const detailRes = await axiosGetWithRetry(detailUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 });
+          const item = detailRes.data.results ? detailRes.data.results[0] : null;
+          if (item) {
+            resolvedSubjectId = item.subjectid || item.id;
+            resolvedDp = item.dp || '';
+            resolvedTitle = item.title || title;
+            mediaType = item.media_type || mediaType;
+            console.log(`[Resolver] NetMirror ID mapped successfully: ${subjectid} -> ${resolvedSubjectId}`);
+          }
+        }
+      } catch (err) {
+        console.error('[Resolver] NetMirror search lookup error:', err.message);
+      }
+    }
+
     const timestamp = Math.floor(Date.now() / 1000);
     const signature = crypto.createHmac('sha256', 'net###@@sss').update(String(timestamp)).digest('hex');
     
@@ -1738,15 +1787,15 @@ app.get('/api/netmirror-stream', async (req, res) => {
       return binary;
     }
     
-    const na = encodeURIComponent(Buffer.from(z(title || ''), 'binary').toString('base64'));
+    const na = encodeURIComponent(Buffer.from(z(resolvedTitle || ''), 'binary').toString('base64'));
     
-    let playUrl = `https://speed.watch22.shop/play/watchbox.php?id=${subjectid}&se=${se || 0}&ep=${ep || 0}&dp=${encodeURIComponent(dp || '')}&na=${na}`;
+    let playUrl = `https://speed.watch22.shop/play/watchbox.php?id=${resolvedSubjectId}&se=${se || 0}&ep=${ep || 0}&dp=${encodeURIComponent(resolvedDp)}&na=${na}`;
     playUrl += `&ts=${timestamp}&sig=${signature}&exten=false`;
     
     // Attempt to scrape direct mp4 video stream URLs from the player page
     try {
       // NetMirror API hit is required first to initialize session
-      const apiDetailUrl = `https://api2.imdb3.shop/api/${se && se !== '0' ? 'tv' : 'movie'}/${subjectid}`;
+      const apiDetailUrl = `https://api2.imdb3.shop/api/${mediaType}/${resolvedSubjectId}`;
       await axiosGetWithRetry(apiDetailUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
         timeout: 4000

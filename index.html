@@ -158,12 +158,26 @@
               <div class="player-box" id="player-box-container" style="display: none;">
                 <h3><i class="fa-solid fa-circle-play"></i> Watch Online / Video Player</h3>
                 
+                <!-- Audio Language Selector -->
+                <div class="audio-selector" id="player-audio-container" style="display: none;">
+                  <span class="audio-selector-label"><i class="fa-solid fa-headphones"></i> Audio:</span>
+                  <div class="audio-options" id="player-audio-options"></div>
+                </div>
+
                 <!-- Native Video Player (For direct streaming) -->
                 <div class="player-wrapper-native" id="native-player-wrapper" style="display: none;">
                   <video id="native-video-player" controls playsinline webkit-playsinline preload="metadata">
                     <source src="" type="video/mp4">
                     Your browser does not support the video tag.
                   </video>
+
+                  <!-- Floating Audio Selector inside Player -->
+                  <div class="player-floating-audio" id="player-floating-audio-container" style="display: none;">
+                    <button class="player-floating-audio-btn" id="player-floating-audio-trigger" title="Change Audio Language">
+                      <i class="fa-solid fa-headphones"></i> <span>Audio</span>
+                    </button>
+                    <div class="player-floating-audio-dropdown" id="player-floating-audio-menu"></div>
+                  </div>
                   <div class="player-loader-overlay" id="native-player-loader" style="display: none;">
                     <div class="player-loader-content">
                       <div class="player-loader-spinner"></div>
@@ -201,22 +215,16 @@
                 <div class="server-selector" id="player-servers">
                   <span class="server-selector-label"><i class="fa-solid fa-server"></i> Server:</span>
                    <button class="server-btn active" id="server-btn-direct">Direct Stream (Premium)</button>
-                   <button class="server-btn" data-src-prefix="https://embed.su/embed/movie/">Server 1 (Embed.su)</button>
-                   <button class="server-btn" data-src-prefix="https://player.autoembed.cc/embed/movie/">Server 2 (Autoembed)</button>
-                   <button class="server-btn" data-src-prefix="https://vidsrc.vip/embed/movie/">Server 3 (Vidsrc.vip)</button>
-                   <button class="server-btn" data-src-prefix="https://vidsrc.net/embed/movie/">Server 4 (Vidsrc.net)</button>
+                    <button class="server-btn" id="server-btn-1" data-src-prefix="https://embed.su/embed/movie/">Server 1</button>
+                    <button class="server-btn" id="server-btn-2" data-src-prefix="https://player.autoembed.cc/embed/movie/">Server 2</button>
+                    <button class="server-btn" id="server-btn-3" data-src-prefix="https://vidsrc.vip/embed/movie/">Server 3</button>
+                    <button class="server-btn" id="server-btn-4" data-src-prefix="https://vidsrc.net/embed/movie/">Server 4</button>
                 </div>
 
                  <!-- Stream Quality Selector -->
                  <div class="quality-selector" id="player-quality-container" style="display: none;">
                    <span class="quality-selector-label"><i class="fa-solid fa-sliders"></i> Quality:</span>
                    <div class="quality-options" id="player-quality-options"></div>
-                 </div>
-
-                 <!-- Audio Language Selector -->
-                 <div class="audio-selector" id="player-audio-container" style="display: none;">
-                   <span class="audio-selector-label"><i class="fa-solid fa-language"></i> Audio Language:</span>
-                   <div class="audio-options" id="player-audio-options"></div>
                  </div>
 
                  <!-- Brightness Controller -->
@@ -274,6 +282,6 @@
     </div>
   </footer>
 
-  <script src="app.js?v=4.3"></script>
+  <script src="app.js?v=4.6"></script>
 </body>
 </html>
